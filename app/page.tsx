@@ -1,10 +1,19 @@
-export default function Home() {
+import { redirect } from "next/navigation";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/lib/auth";
+import { Dashboard } from "@/components/dashboard/dashboard";
+
+export default async function Home() {
+  const session = await getServerSession(authOptions);
+  if (!session) redirect("/login");
+
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-2 p-8">
-      <h1 className="text-2xl font-semibold">izi-agentctl</h1>
-      <p className="text-sm text-neutral-400">
-        Agent dashboard scaffold — UI coming soon.
-      </p>
-    </main>
+    <Dashboard
+      user={{
+        name: session.user?.name ?? null,
+        image: session.user?.image ?? null,
+        email: session.user?.email ?? null,
+      }}
+    />
   );
 }

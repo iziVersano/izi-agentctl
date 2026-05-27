@@ -1,3 +1,39 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  body {
+    /* Faint terminal grid backdrop */
+    background-image:
+      linear-gradient(rgba(61, 220, 151, 0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(61, 220, 151, 0.025) 1px, transparent 1px);
+    background-size: 44px 44px;
+    background-attachment: fixed;
+  }
+
+  ::selection {
+    background-color: rgba(61, 220, 151, 0.3);
+    color: #e6fff2;
+  }
+
+  /* Terminal-style scrollbars */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #1a2532 transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: #1a2532;
+    border-radius: 0;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: #25333f;
+  }
+}
