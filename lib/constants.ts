@@ -4,6 +4,7 @@ export const REPOS = [
   "gaestehaus-kraus",
   "sol-hebrew-gems",
   "TerraWiz",
+  "aventura-ride-hub",
 ] as const;
 
 export type Repo = (typeof REPOS)[number];
