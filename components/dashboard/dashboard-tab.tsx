@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { REPOS, type Repo } from "@/lib/constants";
 import { RepoIcon } from "@/components/icons";
 import type { GitHubItem } from "@/types/github";
+import type { RepoMeta } from "@/app/api/github/repo-meta/route";
 import { timeAgo } from "@/lib/time-ago";
 
 type ListState = {
@@ -11,6 +12,16 @@ type ListState = {
   loading: boolean;
   error: string | null;
 };
+
+type MetaState = {
+  meta: RepoMeta | null;
+  loading: boolean;
+};
+
+const EMPTY_META: MetaState = { meta: null, loading: true };
+type MetaMap = Record<Repo, MetaState>;
+
+const LAST_VISIT_KEY = "agentctl:dashboard:lastVisitedAt";
 
 type DraftState = {
   title: string;
@@ -36,6 +47,8 @@ const initialLists = (): ListMap =>
   Object.fromEntries(REPOS.map((r) => [r, EMPTY_LIST])) as ListMap;
 const initialDrafts = (): DraftMap =>
   Object.fromEntries(REPOS.map((r) => [r, EMPTY_DRAFT])) as DraftMap;
+const initialMetas = (): MetaMap =>
+  Object.fromEntries(REPOS.map((r) => [r, EMPTY_META])) as MetaMap;
 
 // Subtle gradient washes — picked deterministically per repo name so the
 // grid looks varied without jumping around between renders. Tints stay low
@@ -60,11 +73,17 @@ function tileGradient(repo: string): string {
 
 export function DashboardTab() {
   const [lists, setLists] = useState<ListMap>(initialLists);
+  const [metas, setMetas] = useState<MetaMap>(initialMetas);
   const [drafts, setDrafts] = useState<DraftMap>(initialDrafts);
   const [lastSync, setLastSync] = useState<number | null>(null);
+  // Snapshot of "previous visit" timestamp taken once at mount. Cells compare
+  // commit/issue dates against this to render the "new since last visit" pip.
+  // The CURRENT visit's timestamp gets written back on unmount so the next
+  // render sees this session's activity as the new baseline.
+  const lastVisitRef = useRef<number>(0);
   const ctrlRef = useRef<AbortController | null>(null);
 
-  const fetchOne = useCallback(
+  const fetchIssues = useCallback(
     async (repo: Repo, signal: AbortSignal): Promise<ListState> => {
       try {
         const res = await fetch(
@@ -88,6 +107,24 @@ export function DashboardTab() {
     [],
   );
 
+  const fetchMeta = useCallback(
+    async (repo: Repo, signal: AbortSignal): Promise<MetaState> => {
+      try {
+        const res = await fetch(
+          `/api/github/repo-meta?repo=${encodeURIComponent(repo)}`,
+          { signal },
+        );
+        if (!res.ok) return { meta: null, loading: false };
+        const data = (await res.json()) as RepoMeta;
+        return { meta: data, loading: false };
+      } catch {
+        if (signal.aborted) return { meta: null, loading: true };
+        return { meta: null, loading: false };
+      }
+    },
+    [],
+  );
+
   const loadAll = useCallback(async () => {
     ctrlRef.current?.abort();
     const ctrl = new AbortController();
@@ -99,21 +136,35 @@ export function DashboardTab() {
         REPOS.map((r) => [r, { ...prev[r], loading: true, error: null }]),
       ) as ListMap,
     );
+    setMetas((prev) =>
+      Object.fromEntries(
+        REPOS.map((r) => [r, { ...prev[r], loading: true }]),
+      ) as MetaMap,
+    );
 
-    // Fire all 6 in parallel; settle each cell independently as it returns.
-    await Promise.allSettled(
-      REPOS.map(async (repo) => {
-        const next = await fetchOne(repo, ctrl.signal);
+    // Fire 2 endpoints × 6 repos in parallel; settle each piece independently.
+    await Promise.allSettled([
+      ...REPOS.map(async (repo) => {
+        const next = await fetchIssues(repo, ctrl.signal);
         if (ctrl.signal.aborted) return;
         setLists((prev) => ({ ...prev, [repo]: next }));
       }),
-    );
+      ...REPOS.map(async (repo) => {
+        const next = await fetchMeta(repo, ctrl.signal);
+        if (ctrl.signal.aborted) return;
+        setMetas((prev) => ({ ...prev, [repo]: next }));
+      }),
+    ]);
 
     if (!ctrl.signal.aborted) setLastSync(Date.now());
-  }, [fetchOne]);
+  }, [fetchIssues, fetchMeta]);
 
-  // Initial load + refresh on focus/visibility.
+  // Initial load + refresh on focus/visibility. Also snapshots and updates
+  // the persisted lastVisitedAt timestamp used by the "new since last visit" pip.
   useEffect(() => {
+    const stored = localStorage.getItem(LAST_VISIT_KEY);
+    lastVisitRef.current = stored ? Number(stored) || 0 : 0;
+
     loadAll();
 
     const onFocus = () => {
@@ -126,6 +177,8 @@ export function DashboardTab() {
       ctrlRef.current?.abort();
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onFocus);
+      // Record THIS visit's wall-clock as the new baseline for next time.
+      localStorage.setItem(LAST_VISIT_KEY, String(Date.now()));
     };
   }, [loadAll]);
 
@@ -237,7 +290,9 @@ export function DashboardTab() {
             key={repo}
             repo={repo}
             list={lists[repo]}
+            meta={metas[repo]}
             draft={drafts[repo]}
+            lastVisitAt={lastVisitRef.current}
             onDraftChange={(patch) => updateDraft(repo, patch)}
             onSubmit={() => submitIssue(repo)}
           />
@@ -250,13 +305,17 @@ export function DashboardTab() {
 function RepoCell({
   repo,
   list,
+  meta,
   draft,
+  lastVisitAt,
   onDraftChange,
   onSubmit,
 }: {
   repo: Repo;
   list: ListState;
+  meta: MetaState;
   draft: DraftState;
+  lastVisitAt: number;
   onDraftChange: (patch: Partial<DraftState>) => void;
   onSubmit: () => void;
 }) {
@@ -270,6 +329,20 @@ function RepoCell({
     }
   };
 
+  // "New since last visit" — any commit or issue more recent than the stored
+  // last-visit baseline. Skipped on the first ever visit (lastVisitAt === 0)
+  // so brand-new users don't see every tile lit up.
+  const hasNewActivity = useMemo(() => {
+    if (!lastVisitAt) return false;
+    const commitAt = meta.meta?.latestCommit?.date
+      ? new Date(meta.meta.latestCommit.date).getTime()
+      : 0;
+    const newestIssueAt = list.items[0]?.createdAt
+      ? new Date(list.items[0].createdAt).getTime()
+      : 0;
+    return commitAt > lastVisitAt || newestIssueAt > lastVisitAt;
+  }, [lastVisitAt, meta.meta, list.items]);
+
   return (
     <div
       className="flex flex-col border border-term-border bg-term-panel/60"
@@ -281,9 +354,20 @@ function RepoCell({
           <span className="truncate font-mono text-[13px] text-term-text">
             {repo}
           </span>
+          {hasNewActivity && (
+            <span
+              className="h-1.5 w-1.5 shrink-0 rounded-full bg-term-green shadow-glow-sm"
+              title="New activity since your last visit"
+              aria-label="New activity since your last visit"
+            />
+          )}
         </div>
         <CountBadge list={list} />
       </header>
+
+      {/* Activity row: latest commit, open PRs, CI status */}
+      <ActivityRow repo={repo} meta={meta} />
+
 
       {/* Open issues list */}
       <div className="max-h-56 overflow-y-auto">
@@ -381,6 +465,100 @@ function RepoCell({
         )}
       </div>
     </div>
+  );
+}
+
+function ActivityRow({ repo: _repo, meta }: { repo: Repo; meta: MetaState }) {
+  if (meta.loading && !meta.meta) {
+    return (
+      <div className="border-b border-term-border/60 px-4 py-2 font-mono text-[10.5px] text-term-dim">
+        loading activity…
+      </div>
+    );
+  }
+  if (!meta.meta) {
+    return (
+      <div className="border-b border-term-border/60 px-4 py-2 font-mono text-[10.5px] text-term-dim/70">
+        activity unavailable
+      </div>
+    );
+  }
+
+  const { latestCommit, openPrCount, ci } = meta.meta;
+
+  return (
+    <div className="flex items-center justify-between gap-3 border-b border-term-border/60 px-4 py-2">
+      {/* Latest commit */}
+      {latestCommit ? (
+        <a
+          href={latestCommit.htmlUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-term-dim transition hover:text-term-text"
+          title={latestCommit.message}
+        >
+          <span className="text-term-text">{latestCommit.author}</span>
+          {" · "}
+          {timeAgo(latestCommit.date)}
+        </a>
+      ) : (
+        <span className="min-w-0 flex-1 font-mono text-[10.5px] text-term-dim/70">
+          no commits
+        </span>
+      )}
+
+      <div className="flex shrink-0 items-center gap-2.5">
+        {openPrCount > 0 && (
+          <span
+            className="font-mono text-[10.5px] text-term-dim"
+            title={`${openPrCount} open pull request${openPrCount === 1 ? "" : "s"}`}
+          >
+            <span className="text-term-text">{openPrCount}</span> pr
+            {openPrCount === 1 ? "" : "s"}
+          </span>
+        )}
+
+        <CIDot ci={ci} />
+      </div>
+    </div>
+  );
+}
+
+function CIDot({ ci }: { ci: RepoMeta["ci"] }) {
+  if (!ci.state) {
+    return (
+      <span
+        className="h-2 w-2 rounded-full bg-term-dim/30"
+        title="No CI runs"
+        aria-label="No CI runs"
+      />
+    );
+  }
+
+  const map: Record<NonNullable<RepoMeta["ci"]["state"]>, { color: string; label: string }> = {
+    success: { color: "bg-term-green shadow-glow-sm", label: "CI passing" },
+    failure: { color: "bg-red-400 shadow-[0_0_8px_-1px_rgba(248,113,113,0.6)]", label: "CI failing" },
+    pending: { color: "bg-amber-400 animate-pulse", label: "CI running" },
+    neutral: { color: "bg-term-dim", label: "CI neutral" },
+    skipped: { color: "bg-term-dim/50", label: "CI skipped" },
+    cancelled: { color: "bg-term-dim/50", label: "CI cancelled" },
+  };
+  const { color, label } = map[ci.state];
+
+  const dot = (
+    <span
+      className={`h-2 w-2 rounded-full ${color}`}
+      title={label}
+      aria-label={label}
+    />
+  );
+
+  return ci.htmlUrl ? (
+    <a href={ci.htmlUrl} target="_blank" rel="noopener noreferrer">
+      {dot}
+    </a>
+  ) : (
+    dot
   );
 }
 
