@@ -16,6 +16,7 @@ type GitHubIssue = {
   html_url: string;
   user: { login: string } | null;
   pull_request?: unknown;
+  labels?: Array<{ name: string; color: string }>;
 };
 
 /** Open issues for the selected repo (PRs are filtered out — GitHub's issues
@@ -47,6 +48,10 @@ export async function GET(request: Request) {
         createdAt: i.created_at,
         state: i.state,
         htmlUrl: i.html_url,
+        labels: (i.labels ?? []).map((l) => ({
+          name: l.name,
+          color: l.color,
+        })),
       }));
 
     return NextResponse.json({ items });

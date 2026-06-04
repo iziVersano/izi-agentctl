@@ -71,6 +71,72 @@ function tileGradient(repo: string): string {
   return TILE_GRADIENTS[Math.abs(h) % TILE_GRADIENTS.length];
 }
 
+// CI state → left-accent bar color. Drives the strongest "is this repo
+// healthy" signal on the tile.
+function ciAccent(state: RepoMeta["ci"]["state"]): string {
+  switch (state) {
+    case "success":
+      return "bg-term-green";
+    case "failure":
+      return "bg-red-400";
+    case "pending":
+      return "bg-amber-400 animate-pulse";
+    case "neutral":
+    case "skipped":
+    case "cancelled":
+      return "bg-term-dim/60";
+    default:
+      return "bg-term-border";
+  }
+}
+
+// Open-issue count → badge tone. Visual heat map of where work is piling up.
+function issueHeat(count: number): { text: string; border: string } {
+  if (count === 0) return { text: "text-term-green", border: "border-term-green/40" };
+  if (count <= 3) return { text: "text-amber-300", border: "border-amber-400/40" };
+  if (count <= 8) return { text: "text-orange-300", border: "border-orange-400/50" };
+  return { text: "text-red-300", border: "border-red-400/50" };
+}
+
+// Foreground color (b/w) for a given GitHub label color, so dark labels get
+// white text and pale labels get black. Standard YIQ luma heuristic.
+function labelTextColor(hex: string): string {
+  if (!/^[0-9a-f]{6}$/i.test(hex)) return "#fff";
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+  return yiq >= 140 ? "#0a0a0a" : "#ffffff";
+}
+
+// Create-issue button styling driven by form state — disabled / ready /
+// submitting / post-success / post-error. Keeping this off the JSX makes
+// the lifecycle easy to read in one place.
+function buttonClass(draft: DraftState): string {
+  const base =
+    "border px-3 py-1 font-mono text-[10.5px] uppercase tracking-wider transition";
+  if (!draft.title.trim()) {
+    return `${base} cursor-not-allowed border-term-border bg-transparent text-term-dim`;
+  }
+  if (draft.submitting) {
+    return `${base} animate-pulse border-amber-400/60 bg-amber-400/15 text-amber-300`;
+  }
+  if (draft.notice?.kind === "ok") {
+    return `${base} border-term-green bg-term-green/20 text-term-green hover:bg-term-green/30`;
+  }
+  if (draft.notice?.kind === "err") {
+    return `${base} border-red-400/70 bg-red-500/15 text-red-300 hover:bg-red-500/25`;
+  }
+  return `${base} border-term-green/60 bg-term-green/10 text-term-green hover:bg-term-green/20`;
+}
+
+function buttonLabel(draft: DraftState): string {
+  if (draft.submitting) return "creating…";
+  if (draft.notice?.kind === "ok") return "create another";
+  if (draft.notice?.kind === "err") return "retry";
+  return "create issue";
+}
+
 export function DashboardTab() {
   const [lists, setLists] = useState<ListMap>(initialLists);
   const [metas, setMetas] = useState<MetaMap>(initialMetas);
@@ -224,6 +290,7 @@ export function DashboardTab() {
           createdAt: new Date().toISOString(),
           state: "open",
           htmlUrl: data.htmlUrl,
+          labels: [],
         };
         setLists((prev) => ({
           ...prev,
@@ -343,11 +410,25 @@ function RepoCell({
     return commitAt > lastVisitAt || newestIssueAt > lastVisitAt;
   }, [lastVisitAt, meta.meta, list.items]);
 
+  const ciState = meta.meta?.ci.state ?? null;
+  const accentClass = ciAccent(ciState);
+  // Pulsing outline only when there's NEW activity AND this isn't the first visit.
+  // Sits above the gradient and below the CI accent bar visually.
+  const outlineClass = hasNewActivity
+    ? "ring-1 ring-term-green/60 ring-offset-0 shadow-[0_0_18px_-2px_rgba(61,220,151,0.35)]"
+    : "";
+
   return (
     <div
-      className="flex flex-col border border-term-border bg-term-panel/60"
+      className={`relative flex flex-col overflow-hidden border border-term-border bg-term-panel/60 ${outlineClass}`}
       style={{ backgroundImage: tileGradient(repo) }}
     >
+      {/* CI-driven left accent bar */}
+      <span
+        className={`absolute inset-y-0 left-0 w-[3px] ${accentClass}`}
+        aria-hidden
+      />
+
       <header className="flex items-center justify-between border-b border-term-border px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">
           <RepoIcon className="h-4 w-4 shrink-0 text-term-green" />
@@ -356,7 +437,7 @@ function RepoCell({
           </span>
           {hasNewActivity && (
             <span
-              className="h-1.5 w-1.5 shrink-0 rounded-full bg-term-green shadow-glow-sm"
+              className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-term-green shadow-glow-sm"
               title="New activity since your last visit"
               aria-label="New activity since your last visit"
             />
@@ -391,9 +472,33 @@ function RepoCell({
                   <p className="truncate font-mono text-[12.5px] text-term-text group-hover:text-term-green-bright">
                     {item.title}
                   </p>
-                  <p className="mt-0.5 font-mono text-[10.5px] text-term-dim">
-                    #{item.number} · {item.author} · {timeAgo(item.createdAt)}
-                  </p>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10.5px] text-term-dim">
+                    <span>
+                      #{item.number} · {item.author} · {timeAgo(item.createdAt)}
+                    </span>
+                    {item.labels.length > 0 && (
+                      <span className="flex flex-wrap items-center gap-1">
+                        {item.labels.slice(0, 3).map((label) => (
+                          <span
+                            key={label.name}
+                            className="rounded-full px-1.5 py-px text-[9.5px] font-medium"
+                            style={{
+                              backgroundColor: `#${label.color}`,
+                              color: labelTextColor(label.color),
+                            }}
+                            title={label.name}
+                          >
+                            {label.name}
+                          </span>
+                        ))}
+                        {item.labels.length > 3 && (
+                          <span className="text-term-dim/70">
+                            +{item.labels.length - 3}
+                          </span>
+                        )}
+                      </span>
+                    )}
+                  </div>
                 </a>
               </li>
             ))}
@@ -447,19 +552,22 @@ function RepoCell({
             type="button"
             onClick={onSubmit}
             disabled={draft.submitting || !draft.title.trim()}
-            className="border border-term-green/60 bg-term-green/10 px-3 py-1 font-mono text-[10.5px] uppercase tracking-wider text-term-green transition hover:bg-term-green/20 disabled:cursor-not-allowed disabled:border-term-border disabled:bg-transparent disabled:text-term-dim"
+            className={buttonClass(draft)}
           >
-            {draft.submitting ? "creating…" : "create issue"}
+            {buttonLabel(draft)}
           </button>
         </div>
 
         {draft.notice && (
           <p
-            className={`truncate font-mono text-[10.5px] ${
-              draft.notice.kind === "ok" ? "text-term-green" : "text-red-400"
+            className={`truncate border px-2 py-1 font-mono text-[10.5px] ${
+              draft.notice.kind === "ok"
+                ? "border-term-green/40 bg-term-green/10 text-term-green"
+                : "border-red-400/50 bg-red-500/10 text-red-300"
             }`}
             title={draft.notice.text}
           >
+            {draft.notice.kind === "ok" ? "✓ " : "× "}
             {draft.notice.text}
           </p>
         )}
@@ -595,14 +703,17 @@ function CountBadge({ list }: { list: ListState }) {
   }
   if (list.error) {
     return (
-      <span className="border border-red-400/40 px-1.5 py-0.5 font-mono text-[10px] text-red-300">
+      <span className="border border-red-400/40 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-red-300">
         err
       </span>
     );
   }
+  const heat = issueHeat(list.items.length);
   return (
-    <span className="font-mono text-[10.5px] text-term-dim">
-      <span className="text-term-text">{list.items.length}</span> open
+    <span
+      className={`border px-1.5 py-0.5 font-mono text-[10.5px] uppercase tracking-wider ${heat.border} ${heat.text}`}
+    >
+      {list.items.length} open
     </span>
   );
 }

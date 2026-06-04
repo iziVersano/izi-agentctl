@@ -45,6 +45,7 @@ export async function GET(request: Request) {
       createdAt: p.created_at,
       state: p.merged_at ? "merged" : p.draft ? "draft" : p.state,
       htmlUrl: p.html_url,
+      labels: [],
     }));
 
     return NextResponse.json({ items });
