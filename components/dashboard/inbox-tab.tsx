@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { REPOS, type Repo } from "@/lib/constants";
 import { timeAgo } from "@/lib/time-ago";
+import { dispatchIssueCreated } from "@/lib/events";
 import type { InboxItem } from "@/app/api/telegram/inbox/route";
 
 const DISMISSED_KEY = "agentctl:inbox:dismissed";
@@ -175,6 +176,8 @@ export function InboxTab() {
           writeSet(FILED_KEY, next);
           return next;
         });
+        // Tell other tabs (Dashboard) to refetch this repo immediately.
+        dispatchIssueCreated({ repo: draft.repo, number: data.number });
         updateDraft(item.id, {
           submitting: false,
           result: {

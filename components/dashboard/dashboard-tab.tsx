@@ -6,6 +6,10 @@ import { RepoIcon } from "@/components/icons";
 import type { GitHubItem } from "@/types/github";
 import type { RepoMeta } from "@/app/api/github/repo-meta/route";
 import { timeAgo } from "@/lib/time-ago";
+import {
+  ISSUE_CREATED_EVENT,
+  type IssueCreatedDetail,
+} from "@/lib/events";
 
 type ListState = {
   items: GitHubItem[];
@@ -225,6 +229,29 @@ export function DashboardTab() {
     if (!ctrl.signal.aborted) setLastSync(Date.now());
   }, [fetchIssues, fetchMeta]);
 
+  // Refetch a single repo's issues + meta. Used when an event tells us
+  // exactly which repo changed (e.g. InboxTab just filed an issue) — cheaper
+  // than loadAll and avoids flashing the other 5 cards to loading state.
+  const loadRepo = useCallback(
+    async (repo: Repo) => {
+      const ctrl = new AbortController();
+      setLists((prev) => ({
+        ...prev,
+        [repo]: { ...prev[repo], loading: true, error: null },
+      }));
+      setMetas((prev) => ({ ...prev, [repo]: { ...prev[repo], loading: true } }));
+
+      const [nextList, nextMeta] = await Promise.all([
+        fetchIssues(repo, ctrl.signal),
+        fetchMeta(repo, ctrl.signal),
+      ]);
+      if (ctrl.signal.aborted) return;
+      setLists((prev) => ({ ...prev, [repo]: nextList }));
+      setMetas((prev) => ({ ...prev, [repo]: nextMeta }));
+    },
+    [fetchIssues, fetchMeta],
+  );
+
   // Initial load + refresh on focus/visibility. Also snapshots and updates
   // the persisted lastVisitedAt timestamp used by the "new since last visit" pip.
   useEffect(() => {
@@ -247,6 +274,18 @@ export function DashboardTab() {
       localStorage.setItem(LAST_VISIT_KEY, String(Date.now()));
     };
   }, [loadAll]);
+
+  // Cross-tab signal: when InboxTab (or anywhere else) creates an issue,
+  // refetch just that repo so the new issue shows up without a full reload.
+  useEffect(() => {
+    const onIssueCreated = (e: Event) => {
+      const detail = (e as CustomEvent<IssueCreatedDetail>).detail;
+      if (!detail?.repo) return;
+      loadRepo(detail.repo);
+    };
+    window.addEventListener(ISSUE_CREATED_EVENT, onIssueCreated);
+    return () => window.removeEventListener(ISSUE_CREATED_EVENT, onIssueCreated);
+  }, [loadRepo]);
 
   const updateDraft = useCallback((repo: Repo, patch: Partial<DraftState>) => {
     setDrafts((prev) => ({ ...prev, [repo]: { ...prev[repo], ...patch } }));
