@@ -37,6 +37,27 @@ const initialLists = (): ListMap =>
 const initialDrafts = (): DraftMap =>
   Object.fromEntries(REPOS.map((r) => [r, EMPTY_DRAFT])) as DraftMap;
 
+// Subtle gradient washes — picked deterministically per repo name so the
+// grid looks varied without jumping around between renders. Tints stay low
+// opacity to preserve the dark terminal aesthetic.
+const TILE_GRADIENTS = [
+  "radial-gradient(120% 80% at 100% 0%, rgba(61,220,151,0.10), transparent 60%)",   // green
+  "radial-gradient(120% 80% at 0% 100%, rgba(80,170,255,0.10), transparent 60%)",   // blue
+  "radial-gradient(120% 80% at 100% 100%, rgba(180,130,255,0.10), transparent 60%)", // purple
+  "radial-gradient(120% 80% at 0% 0%, rgba(255,170,90,0.08), transparent 60%)",     // amber
+  "radial-gradient(120% 80% at 100% 0%, rgba(255,110,160,0.08), transparent 60%)",  // pink
+  "radial-gradient(120% 80% at 0% 100%, rgba(110,220,220,0.10), transparent 60%)",  // cyan
+] as const;
+
+function tileGradient(repo: string): string {
+  // djb2 hash — small, stable, no deps.
+  let h = 5381;
+  for (let i = 0; i < repo.length; i++) {
+    h = ((h << 5) + h + repo.charCodeAt(i)) | 0;
+  }
+  return TILE_GRADIENTS[Math.abs(h) % TILE_GRADIENTS.length];
+}
+
 export function DashboardTab() {
   const [lists, setLists] = useState<ListMap>(initialLists);
   const [drafts, setDrafts] = useState<DraftMap>(initialDrafts);
@@ -250,7 +271,10 @@ function RepoCell({
   };
 
   return (
-    <div className="flex flex-col border border-term-border bg-term-panel/60">
+    <div
+      className="flex flex-col border border-term-border bg-term-panel/60"
+      style={{ backgroundImage: tileGradient(repo) }}
+    >
       <header className="flex items-center justify-between border-b border-term-border px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">
           <RepoIcon className="h-4 w-4 shrink-0 text-term-green" />
