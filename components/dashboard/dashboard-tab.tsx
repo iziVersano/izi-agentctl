@@ -13,7 +13,8 @@ type ListState = {
 };
 
 type DraftState = {
-  text: string;
+  title: string;
+  body: string;
   autoClaude: boolean;
   submitting: boolean;
   notice: { kind: "ok" | "err"; text: string } | null;
@@ -21,7 +22,8 @@ type DraftState = {
 
 const EMPTY_LIST: ListState = { items: [], loading: true, error: null };
 const EMPTY_DRAFT: DraftState = {
-  text: "",
+  title: "",
+  body: "",
   autoClaude: false,
   submitting: false,
   notice: null,
@@ -114,7 +116,7 @@ export function DashboardTab() {
     async (repo: Repo) => {
       setDrafts((prev) => {
         const d = prev[repo];
-        if (!d.text.trim() || d.submitting) return prev;
+        if (!d.title.trim() || d.submitting) return prev;
         return {
           ...prev,
           [repo]: { ...d, submitting: true, notice: null },
@@ -122,7 +124,8 @@ export function DashboardTab() {
       });
 
       const draft = drafts[repo];
-      if (!draft.text.trim() || draft.submitting) return;
+      const title = draft.title.trim();
+      if (!title || draft.submitting) return;
 
       try {
         const res = await fetch("/api/github/create-issue", {
@@ -130,8 +133,8 @@ export function DashboardTab() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             repo,
-            title: draft.text.trim(),
-            body: "",
+            title,
+            body: draft.body,
             autoTriggerClaude: draft.autoClaude,
           }),
         });
@@ -142,7 +145,7 @@ export function DashboardTab() {
         const newIssue: GitHubItem = {
           id: data.number,
           number: data.number,
-          title: draft.text.trim(),
+          title,
           author: "you",
           createdAt: new Date().toISOString(),
           state: "open",
@@ -157,7 +160,8 @@ export function DashboardTab() {
         }));
 
         updateDraft(repo, {
-          text: "",
+          title: "",
+          body: "",
           autoClaude: false,
           submitting: false,
           notice: {
@@ -235,8 +239,10 @@ function RepoCell({
   onDraftChange: (patch: Partial<DraftState>) => void;
   onSubmit: () => void;
 }) {
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // Cmd/Ctrl+Enter submits.
+  const handleKeyDown = (
+    e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>,
+  ) => {
+    // Cmd/Ctrl+Enter submits from either field.
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       onSubmit();
@@ -288,16 +294,36 @@ function RepoCell({
       </div>
 
       {/* New issue form */}
-      <div className="border-t border-term-border bg-term-elevated/40 p-3">
-        <textarea
-          value={draft.text}
-          onChange={(e) => onDraftChange({ text: e.target.value })}
-          onKeyDown={handleKeyDown}
-          rows={2}
-          placeholder="new issue title…"
-          className="w-full resize-none border border-term-border bg-term-elevated px-2.5 py-1.5 font-mono text-[12.5px] text-term-text placeholder:text-term-dim/60 focus:border-term-green focus:outline-none focus:shadow-glow-sm"
-        />
-        <div className="mt-2 flex items-center justify-between gap-2">
+      <div className="space-y-2.5 border-t border-term-border bg-term-elevated/40 p-3">
+        <div>
+          <span className="mb-1 block font-mono text-[10px] uppercase tracking-[0.2em] text-term-dim">
+            title
+          </span>
+          <input
+            type="text"
+            value={draft.title}
+            onChange={(e) => onDraftChange({ title: e.target.value })}
+            onKeyDown={handleKeyDown}
+            placeholder="Short, descriptive title"
+            className="w-full border border-term-border bg-term-elevated px-2.5 py-1.5 font-mono text-[12.5px] text-term-text placeholder:text-term-dim/60 focus:border-term-green focus:outline-none focus:shadow-glow-sm"
+          />
+        </div>
+
+        <div>
+          <span className="mb-1 block font-mono text-[10px] uppercase tracking-[0.2em] text-term-dim">
+            body
+          </span>
+          <textarea
+            value={draft.body}
+            onChange={(e) => onDraftChange({ body: e.target.value })}
+            onKeyDown={handleKeyDown}
+            rows={3}
+            placeholder="Describe the task. Markdown supported."
+            className="w-full resize-y border border-term-border bg-term-elevated px-2.5 py-1.5 font-mono text-[12.5px] text-term-text placeholder:text-term-dim/60 focus:border-term-green focus:outline-none focus:shadow-glow-sm"
+          />
+        </div>
+
+        <div className="flex items-center justify-between gap-2">
           <label className="flex cursor-pointer select-none items-center gap-1.5 font-mono text-[10.5px] text-term-dim">
             <input
               type="checkbox"
@@ -306,21 +332,22 @@ function RepoCell({
               className="h-3 w-3 cursor-pointer accent-term-green"
             />
             <span>
-              <span className="text-term-green">@claude</span>
+              auto-trigger <span className="text-term-green">@claude</span>
             </span>
           </label>
           <button
             type="button"
             onClick={onSubmit}
-            disabled={draft.submitting || !draft.text.trim()}
+            disabled={draft.submitting || !draft.title.trim()}
             className="border border-term-green/60 bg-term-green/10 px-3 py-1 font-mono text-[10.5px] uppercase tracking-wider text-term-green transition hover:bg-term-green/20 disabled:cursor-not-allowed disabled:border-term-border disabled:bg-transparent disabled:text-term-dim"
           >
-            {draft.submitting ? "…" : "create"}
+            {draft.submitting ? "creating…" : "create issue"}
           </button>
         </div>
+
         {draft.notice && (
           <p
-            className={`mt-2 truncate font-mono text-[10.5px] ${
+            className={`truncate font-mono text-[10.5px] ${
               draft.notice.kind === "ok" ? "text-term-green" : "text-red-400"
             }`}
             title={draft.notice.text}
