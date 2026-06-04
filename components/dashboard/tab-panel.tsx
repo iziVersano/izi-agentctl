@@ -3,6 +3,7 @@
 import { TAB_BLURB, type Repo, type Tab } from "@/lib/constants";
 import { TAB_ICON } from "@/components/icons";
 import { GitHubTab } from "@/components/dashboard/github-tab";
+import { DashboardTab } from "@/components/dashboard/dashboard-tab";
 
 type TabPanelProps = {
   tab: Tab;
@@ -11,6 +12,10 @@ type TabPanelProps = {
 
 export function TabPanel({ tab, repo }: TabPanelProps) {
   const Icon = TAB_ICON[tab];
+
+  if (tab === "Dashboard") {
+    return <DashboardTab />;
+  }
 
   if (tab === "GitHub") {
     return <GitHubTab repo={repo} />;

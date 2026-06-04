@@ -14,6 +14,17 @@ const base = {
   strokeLinejoin: "round" as const,
 };
 
+function DashboardIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3" y="3" width="7" height="9" rx="1" />
+      <rect x="14" y="3" width="7" height="5" rx="1" />
+      <rect x="14" y="12" width="7" height="9" rx="1" />
+      <rect x="3" y="16" width="7" height="5" rx="1" />
+    </svg>
+  );
+}
+
 function AgentIcon(props: IconProps) {
   return (
     <svg {...base} {...props}>
@@ -65,6 +76,7 @@ function ReportIcon(props: IconProps) {
 }
 
 export const TAB_ICON: Record<Tab, (props: IconProps) => JSX.Element> = {
+  Dashboard: DashboardIcon,
   Agent: AgentIcon,
   GitHub: GitHubIcon,
   Terraform: TerraformIcon,
