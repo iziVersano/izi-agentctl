@@ -487,78 +487,105 @@ function ActivityRow({ repo: _repo, meta }: { repo: Repo; meta: MetaState }) {
   const { latestCommit, openPrCount, ci } = meta.meta;
 
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-term-border/60 px-4 py-2">
-      {/* Latest commit */}
-      {latestCommit ? (
-        <a
-          href={latestCommit.htmlUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-term-dim transition hover:text-term-text"
-          title={latestCommit.message}
-        >
-          <span className="text-term-text">{latestCommit.author}</span>
-          {" · "}
-          {timeAgo(latestCommit.date)}
-        </a>
-      ) : (
-        <span className="min-w-0 flex-1 font-mono text-[10.5px] text-term-dim/70">
-          no commits
-        </span>
-      )}
-
-      <div className="flex shrink-0 items-center gap-2.5">
-        {openPrCount > 0 && (
-          <span
-            className="font-mono text-[10.5px] text-term-dim"
-            title={`${openPrCount} open pull request${openPrCount === 1 ? "" : "s"}`}
+    <div className="space-y-1.5 border-b border-term-border/60 bg-term-elevated/30 px-4 py-2.5">
+      {/* Top line: latest commit */}
+      <div className="flex items-center gap-2 font-mono text-[11px]">
+        <span className="shrink-0 text-term-dim/80">last commit</span>
+        {latestCommit ? (
+          <a
+            href={latestCommit.htmlUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="min-w-0 flex-1 truncate text-term-text transition hover:text-term-green-bright"
+            title={latestCommit.message}
           >
-            <span className="text-term-text">{openPrCount}</span> pr
-            {openPrCount === 1 ? "" : "s"}
-          </span>
+            <span className="text-term-green">{latestCommit.author}</span>
+            <span className="text-term-dim"> · {timeAgo(latestCommit.date)}</span>
+          </a>
+        ) : (
+          <span className="text-term-dim/70">—</span>
         )}
+      </div>
 
-        <CIDot ci={ci} />
+      {/* Bottom line: PRs + CI badge (always visible) */}
+      <div className="flex items-center gap-3 font-mono text-[11px]">
+        <span className="flex items-center gap-1.5">
+          <span className="text-term-dim/80">prs</span>
+          <span
+            className={openPrCount > 0 ? "text-term-text" : "text-term-dim/60"}
+          >
+            {openPrCount}
+          </span>
+        </span>
+
+        <CIBadge ci={ci} />
       </div>
     </div>
   );
 }
 
-function CIDot({ ci }: { ci: RepoMeta["ci"] }) {
-  if (!ci.state) {
-    return (
-      <span
-        className="h-2 w-2 rounded-full bg-term-dim/30"
-        title="No CI runs"
-        aria-label="No CI runs"
-      />
-    );
-  }
-
-  const map: Record<NonNullable<RepoMeta["ci"]["state"]>, { color: string; label: string }> = {
-    success: { color: "bg-term-green shadow-glow-sm", label: "CI passing" },
-    failure: { color: "bg-red-400 shadow-[0_0_8px_-1px_rgba(248,113,113,0.6)]", label: "CI failing" },
-    pending: { color: "bg-amber-400 animate-pulse", label: "CI running" },
-    neutral: { color: "bg-term-dim", label: "CI neutral" },
-    skipped: { color: "bg-term-dim/50", label: "CI skipped" },
-    cancelled: { color: "bg-term-dim/50", label: "CI cancelled" },
+function CIBadge({ ci }: { ci: RepoMeta["ci"] }) {
+  // (color classes, label text) per state — kept text-readable, not dot-only.
+  const map: Record<
+    NonNullable<RepoMeta["ci"]["state"]> | "none",
+    { wrap: string; dot: string; label: string }
+  > = {
+    success: {
+      wrap: "border-term-green/50 text-term-green",
+      dot: "bg-term-green shadow-glow-sm",
+      label: "passing",
+    },
+    failure: {
+      wrap: "border-red-400/60 text-red-300",
+      dot: "bg-red-400 shadow-[0_0_8px_-1px_rgba(248,113,113,0.6)]",
+      label: "failing",
+    },
+    pending: {
+      wrap: "border-amber-400/50 text-amber-300",
+      dot: "bg-amber-400 animate-pulse",
+      label: "running",
+    },
+    neutral: {
+      wrap: "border-term-border text-term-dim",
+      dot: "bg-term-dim",
+      label: "neutral",
+    },
+    skipped: {
+      wrap: "border-term-border text-term-dim/70",
+      dot: "bg-term-dim/50",
+      label: "skipped",
+    },
+    cancelled: {
+      wrap: "border-term-border text-term-dim/70",
+      dot: "bg-term-dim/50",
+      label: "cancelled",
+    },
+    none: {
+      wrap: "border-term-border text-term-dim/60",
+      dot: "bg-term-dim/30",
+      label: "no ci",
+    },
   };
-  const { color, label } = map[ci.state];
 
-  const dot = (
+  const key = (ci.state ?? "none") as keyof typeof map;
+  const { wrap, dot, label } = map[key];
+
+  const inner = (
     <span
-      className={`h-2 w-2 rounded-full ${color}`}
-      title={label}
-      aria-label={label}
-    />
+      className={`inline-flex items-center gap-1.5 border px-1.5 py-0.5 text-[10px] uppercase tracking-wider ${wrap}`}
+      title={`CI: ${label}`}
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
+      ci {label}
+    </span>
   );
 
   return ci.htmlUrl ? (
     <a href={ci.htmlUrl} target="_blank" rel="noopener noreferrer">
-      {dot}
+      {inner}
     </a>
   ) : (
-    dot
+    inner
   );
 }
 
