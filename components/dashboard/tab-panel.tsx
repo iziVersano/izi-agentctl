@@ -4,6 +4,7 @@ import { TAB_BLURB, type Repo, type Tab } from "@/lib/constants";
 import { TAB_ICON } from "@/components/icons";
 import { GitHubTab } from "@/components/dashboard/github-tab";
 import { DashboardTab } from "@/components/dashboard/dashboard-tab";
+import { InboxTab } from "@/components/dashboard/inbox-tab";
 
 type TabPanelProps = {
   tab: Tab;
@@ -15,6 +16,10 @@ export function TabPanel({ tab, repo }: TabPanelProps) {
 
   if (tab === "Dashboard") {
     return <DashboardTab />;
+  }
+
+  if (tab === "Inbox") {
+    return <InboxTab />;
   }
 
   if (tab === "GitHub") {

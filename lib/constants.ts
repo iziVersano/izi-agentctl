@@ -11,6 +11,7 @@ export type Repo = (typeof REPOS)[number];
 
 export const TABS = [
   "Dashboard",
+  "Inbox",
   "Agent",
   "GitHub",
   "Terraform",
@@ -23,6 +24,7 @@ export type Tab = (typeof TABS)[number];
 /** Short status line shown under each placeholder tab title. */
 export const TAB_BLURB: Record<Tab, string> = {
   Dashboard: "Snapshot of every repo with live open-issue counts.",
+  Inbox: "Triage forwarded Telegram messages into GitHub issues.",
   Agent: "Issue commands to the autonomous agent and watch it work.",
   GitHub: "Browse branches, pull requests, and commit history.",
   Terraform: "Plan and apply infrastructure changes.",
