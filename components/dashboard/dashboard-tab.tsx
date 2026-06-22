@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { REPOS, type Repo } from "@/lib/constants";
+import { REPOS, REPO_TAGS, type Repo } from "@/lib/constants";
 import { RepoIcon } from "@/components/icons";
 import type { GitHubItem } from "@/types/github";
 import type { RepoMeta } from "@/app/api/github/repo-meta/route";
@@ -481,6 +481,14 @@ function RepoCell({
               aria-label="New activity since your last visit"
             />
           )}
+          {(REPO_TAGS[repo] ?? []).map((tag) => (
+            <span
+              key={tag}
+              className="shrink-0 rounded-sm border border-sky-500/50 bg-sky-500/10 px-1.5 py-0.5 font-mono text-[9.5px] uppercase tracking-wider text-sky-400"
+            >
+              {tag}
+            </span>
+          ))}
         </div>
         <CountBadge list={list} />
       </header>

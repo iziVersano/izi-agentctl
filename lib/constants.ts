@@ -5,9 +5,14 @@ export const REPOS = [
   "sol-hebrew-gems",
   "TerraWiz",
   "aventura-ride-hub",
+  "partscloud",
 ] as const;
 
 export type Repo = (typeof REPOS)[number];
+
+export const REPO_TAGS: Partial<Record<Repo, string[]>> = {
+  partscloud: ["tech task"],
+};
 
 export const TABS = [
   "Dashboard",
